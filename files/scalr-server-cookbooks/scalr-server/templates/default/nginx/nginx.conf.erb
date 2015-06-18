@@ -1,0 +1,207 @@
+user <%= node[:scalr_server][:app][:user] %>;
+worker_processes 1;
+
+daemon off;
+
+error_log <%= log_dir_for node, 'nginx' %>/web.error.log;
+
+events {
+  worker_connections  1024;
+}
+
+http {
+  types {
+    text/html html htm shtml;
+    text/css css;
+    text/xml xml;
+    image/gif gif;
+    image/jpeg jpeg jpg;
+    application/javascript js;
+    application/atom+xml atom;
+    application/rss+xml rss;
+
+    text/mathml mml;
+    text/plain txt;
+    text/vnd.sun.j2me.app-descriptor jad;
+    text/vnd.wap.wml wml;
+    text/x-component htc;
+
+    image/png png;
+    image/tiff tif tiff;
+    image/vnd.wap.wbmp wbmp;
+    image/x-icon ico;
+    image/x-jng jng;
+    image/x-ms-bmp bmp;
+    image/svg+xml svg svgz;
+    image/webp webp;
+
+    application/font-woff woff;
+    application/java-archive jar war ear;
+    application/json json;
+    application/mac-binhex40 hqx;
+    application/msword doc;
+    application/pdf pdf;
+    application/postscript ps eps ai;
+    application/rtf rtf;
+    application/vnd.apple.mpegurl m3u8;
+    application/vnd.ms-excel xls;
+    application/vnd.ms-fontobject eot;
+    application/vnd.ms-powerpoint ppt;
+    application/vnd.wap.wmlc wmlc;
+    application/vnd.google-earth.kml+xml kml;
+    application/vnd.google-earth.kmz kmz;
+    application/x-7z-compressed 7z;
+    application/x-cocoa cco;
+    application/x-java-archive-diff jardiff;
+    application/x-java-jnlp-file jnlp;
+    application/x-makeself run;
+    application/x-perl pl pm;
+    application/x-pilot prc pdb;
+    application/x-rar-compressed rar;
+    application/x-redhat-package-manager rpm;
+    application/x-sea sea;
+    application/x-shockwave-flash swf;
+    application/x-stuffit sit;
+    application/x-tcl tcl tk;
+    application/x-x509-ca-cert der pem crt;
+    application/x-xpinstall xpi;
+    application/xhtml+xml xhtml;
+    application/xspf+xml xspf;
+    application/zip zip;
+
+    application/x-httpd-php .php
+    application/x-compress .Z
+    application/x-gzip .gz .tgz
+		
+    application/octet-stream bin exe dll;
+    application/octet-stream deb;
+    application/octet-stream dmg;
+    application/octet-stream iso img;
+    application/octet-stream msi msp msm;
+
+    application/vnd.openxmlformats-officedocument.wordprocessingml.document docx;
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet xlsx;
+    application/vnd.openxmlformats-officedocument.presentationml.presentation pptx;
+
+    audio/midi mid midi kar;
+    audio/mpeg mp3;
+    audio/ogg ogg;
+    audio/x-m4a m4a;
+    audio/x-realaudio ra;
+
+    video/3gpp 3gpp 3gp;
+    video/mp2t ts;
+    video/mp4 mp4;
+    video/mpeg mpeg mpg;
+    video/quicktime mov;
+    video/webm webm;
+    video/x-flv flv;
+    video/x-m4v m4v;
+    video/x-mng mng;
+    video/x-ms-asf asx asf;
+    video/x-ms-wmv wmv;
+    video/x-msvideo avi;
+  }
+
+  default_type application/octet-stream;
+
+  log_format extra '$remote_addr (for "$http_x_forwarded_for") - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
+
+  access_log <%= log_dir_for node, 'nginx' %>/web.proxy.access.log extra;
+  error_log <%= log_dir_for node, 'nginx' %>/web.proxy.error.log;
+
+  keepalive_timeout 65;
+
+  gzip on;
+  gzip_disable "MSIE [1-6]\.(?!.*SV1)";
+  gzip_comp_level 9;
+  gzip_types text/plain application/x-javascript image/png image/gif application/xml application/x-shockwave-flash text/css;
+
+  sendfile on;
+  tcp_nopush on;
+
+  server_tokens off;
+  charset utf-8;
+	
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+  upstream app {
+    least_conn;
+		
+    <% node[:scalr_server][:proxy][:app_upstreams].each do |upstream| %>
+      server <%= upstream %>;
+    <% end %>
+  }
+
+  upstream graphics {
+    least_conn;
+   
+    <% node[:scalr_server][:proxy][:graphics_upstreams].each do |upstream| %>
+      server <%= upstream %>;
+    <% end %>
+  }
+
+  upstream plotter {
+    least_conn;
+		
+    <% node[:scalr_server][:proxy][:plotter_upstreams].each do |upstream| %>
+      server <%= upstream %>;
+    <% end %>
+  }
+	
+  server {
+    listen <%= node[:scalr_server][:proxy][:bind_port] %>;
+    server_name <%= node[:scalr_server][:proxy][:bind_host] %>;
+		
+    <% if node[:scalr_server][:proxy][:ssl_enable] and node[:scalr_server][:proxy][:ssl_redirect] %>
+
+      return 301 https://<%= node[:scalr_server][:routing][:endpoint_host] %>$request_uri;
+		
+    <% else %>
+		
+      location / {
+        proxy_pass http://app;
+      }
+
+      location /graphics {
+        proxy_pass http://graphics;
+      }
+
+      location /load_statistics {
+        proxy_pass http://plotter;
+      }
+		
+    <% end %>
+  }
+
+  <% if node[:scalr_server][:proxy][:ssl_enable] %>
+	
+    server {
+      listen <%= node[:scalr_server][:proxy][:ssl_bind_port] %> ssl;
+      server_name <%= node[:scalr_server][:proxy][:bind_host] %>;
+
+      ssl_certificate <%= node[:scalr_server][:proxy][:ssl_cert_path] %>;
+      ssl_certificate_key <%= node[:scalr_server][:proxy][:ssl_key_path] %>;
+
+      ssl_session_cache shared:SSL:1m;
+      ssl_session_timeout 5m;
+
+      ssl_ciphers HIGH:!aNULL:!MD5;
+      ssl_prefer_server_ciphers on;
+
+      location / {
+        proxy_pass http://app;
+      }
+
+      location /graphics {
+        proxy_pass http://graphics;
+      }
+
+      location /load_statistics {
+        proxy_pass http://plotter;
+      }
+    }
+	
+  <% end %>
+
+}
